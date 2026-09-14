@@ -5,34 +5,33 @@
 #include <algorithm>
 #include <limits>
 #include <sstream>
+#include <regex>
 #include <cstdlib>
 #include <map>
-#include <fstream> // Included for file writing and export capabilities
-#include <filesystem> // Included for cross-platform, safe export folder handling
+#include <fstream> // for file io stream
+#include <filesystem> // safe export folder handling
 
 using namespace std;
 namespace fs = std::filesystem;
 
-// ---------- Screen handling ----------
-// Clears the console so only the current menu is visible. Uses the OS-appropriate
-// command: "cls" on Windows, "clear" on Linux/macOS.
+// clear console so only the current menu is visible
 void clearScreen() {
 #ifdef _WIN32
-    system("cls");
+    system("cls");      // on Windows
 #else
-    system("clear");
+    system("clear");    // Linux/macOS
 #endif
 }
 
 // Pauses after an action's output so the user can read it before the screen
-// clears and the menu is redrawn.
+// clears and the menu is redrawn
 void pauseForUser() {
     cout << "\nPress Enter to continue...";
     cin.get();
 }
 
-// Formats a monetary amount as a fixed 2-decimal string (e.g. "12.50"),
-// used when building table cells where the value must sit inside a fixed-width column.
+// Formats a monetary amount as a fixed 2-decimal string (e.g. "12.50")
+// used when building table cells where the value must sit inside a fixed-width column
 string formatMoney(double amount) {
     ostringstream oss;
     oss << fixed << setprecision(2) << amount;
@@ -41,12 +40,13 @@ string formatMoney(double amount) {
 
 // ---------- Constants used across the system ----------
 
-// Array capacity for each member's borrowed-book slots.
-// Must be big enough to hold the LARGEST per-category borrow limit below (Staff = 8).
+// Array capacity for each member's borrowed-book slots
+// Must be big enough to hold the LARGEST per-category borrow limit below (Staff = 8)
 const int MAX_BORROW_CAPACITY = 8;
 
-// Category-based borrowing rules: each member category has its own
-// maximum number of books that can be borrowed at once, and its own loan period.
+// Category-based borrowing rules: 
+// each member category has its own maximum number of books that can be borrowed at once
+// and its own loan period
 const int MAX_BORROW_STUDENT = 5;
 const int MAX_BORROW_STAFF = 8;
 const int MAX_BORROW_PUBLIC = 3;
@@ -59,9 +59,6 @@ const double FINE_RATE_PER_DAY = 0.50;
 const double MAX_FINE = 20.00;
 
 // ---------- Per-copy tracking constants ----------
-// Each distinct title gets a permanent "slot" (row) in copyBorrowed the moment
-// it's added, and that slot is never reused even if the book is later deleted.
-// This keeps the matrix rows stable regardless of what happens to the Book vector.
 const int MAX_BOOKS = 100;             // max number of distinct titles the system can ever register
 const int MAX_COPIES_PER_BOOK = 10;    // max physical copies any single title can have
 
@@ -113,8 +110,7 @@ struct Reservation {
     int bookID;
 };
 
-// ---------- Input validation helpers ----------
-
+// ---------- Input validation ----------
 int getValidInt(string prompt, int minVal, int maxVal) {
     int value;
     while (true) {
@@ -154,10 +150,10 @@ string getValidString(string prompt) {
     }
 }
 
-// Restrict member category to a fixed set of choices
+// restrict member category to a fixed set of choices
 string getMemberCategory() {
-    cout << "\nMember Category:\n1. Student\n2. Staff\n3. Public\n";
-    int choice = getValidInt("Enter category: ", 1, 3);
+    cout << "\nMember Category:\n  1. Student\n  2. Staff\n  3. Public\n";
+    int choice = getValidInt("Enter category    : ", 1, 3);
     if (choice == 1)
         return "Student";
     if (choice == 2)
@@ -166,7 +162,6 @@ string getMemberCategory() {
 }
 
 // ---------- Search helpers ----------
-
 int findMemberIndex(const vector<Member>& members, int memberID) {
     for (int i = 0; i < static_cast<int>(members.size()); i++)
         if (members[i].memberID == memberID)
@@ -181,11 +176,6 @@ int findBookIndex(const vector<Book>& books, int bookID) {
 }
 
 // ---------- Fine calculation helpers ----------
-// A fine is only permanently posted to member.fineBalance when a book is actually
-// returned (see returnBook()). Until then, a book that is currently overdue has an
-// UNRECORDED fine building up. calculateEstimatedFine() works out what that
-// not-yet-posted amount is *right now*, using the same per-loan formula/cap as
-// returnBook(), so every place that reports/checks a member's fine can include it.
 double calculateEstimatedFine(const Member& member, int currentDay) {
     double estimated = 0.00;
     int loanPeriodDays = getLoanPeriodDays(member.category);
@@ -193,15 +183,17 @@ double calculateEstimatedFine(const Member& member, int currentDay) {
         int overdueDays = (currentDay - member.borrowedBooks[i].borrowDay) - loanPeriodDays;
         if (overdueDays > 0) {
             double fine = overdueDays * FINE_RATE_PER_DAY;
-            if (fine > MAX_FINE) fine = MAX_FINE;   // cap applies per loan, same as returnBook()
+            // cap applies per loan, same as returnBook()
+            if (fine > MAX_FINE) fine = MAX_FINE;  
+            
             estimated += fine;
         }
     }
     return estimated;
 }
 
-// The "true" fine picture for a member: fines already posted (fineBalance) plus
-// fines still accruing on books that are overdue but not yet returned.
+// the "true" fine picture for a member: fines already posted (fineBalance) plus
+// fines still accruing on books that are overdue but not yet returned
 double getTotalFine(const Member& member, int currentDay) {
     return member.fineBalance + calculateEstimatedFine(member, currentDay);
 }
@@ -210,17 +202,14 @@ double getTotalFine(const Member& member, int currentDay) {
 // copyBorrowed[slot][i] == true  -> that physical copy is currently on loan
 // copyBorrowed[slot][i] == false -> that physical copy is on the shelf
 
-// Resets a book's row so that exactly `borrowedCount` of its `totalCopies` slots
-// are marked borrowed (the rest available). Used on creation and whenever
-// totalCopies changes, so the matrix always matches copiesAvailable/totalCopies.
+// resets a book's row
 void resetCopyRow(bool copyBorrowed[][MAX_COPIES_PER_BOOK], int slot, int totalCopies, int borrowedCount) {
     for (int i = 0; i < MAX_COPIES_PER_BOOK; i++) {
         copyBorrowed[slot][i] = (i < totalCopies) && (i < borrowedCount);
     }
 }
 
-// Marks one available copy of this book as borrowed. Returns the copy number (1-based)
-// that was picked, or -1 if (unexpectedly) none were free.
+// mark one available copy of this book as borrowed
 int markOneCopyBorrowed(bool copyBorrowed[][MAX_COPIES_PER_BOOK], int slot, int totalCopies) {
     for (int i = 0; i < totalCopies && i < MAX_COPIES_PER_BOOK; i++) {
         if (!copyBorrowed[slot][i]) {
@@ -231,8 +220,7 @@ int markOneCopyBorrowed(bool copyBorrowed[][MAX_COPIES_PER_BOOK], int slot, int 
     return -1;
 }
 
-// Marks one borrowed copy of this book as returned (back on the shelf). Returns the
-// copy number (1-based) that was picked, or -1 if (unexpectedly) none were on loan.
+// mark one borrowed copy of this book as returned (back on the shelf)
 int markOneCopyReturned(bool copyBorrowed[][MAX_COPIES_PER_BOOK], int slot, int totalCopies) {
     for (int i = 0; i < totalCopies && i < MAX_COPIES_PER_BOOK; i++) {
         if (copyBorrowed[slot][i]) {
@@ -243,8 +231,7 @@ int markOneCopyReturned(bool copyBorrowed[][MAX_COPIES_PER_BOOK], int slot, int 
     return -1;
 }
 
-// Preloads the catalogue with course-based book titles so the system
-// has data to demo without needing to type everything in manually
+// catalogue with course-based book titles
 void initializeBooks(vector<Book>& books, bool copyBorrowed[][MAX_COPIES_PER_BOOK], int& nextBookSlot) {
     struct Seed {
         int id;
@@ -252,9 +239,6 @@ void initializeBooks(vector<Book>& books, bool copyBorrowed[][MAX_COPIES_PER_BOO
         string category;
         int copies;
     };
-    // IDs are assigned sequentially (1-27) in the same order the catalogue displays
-    // them (grouped by category, biggest category first) so the ID column reads
-    // top-to-bottom without jumping around.
     vector<Seed> seedData = {
         // Computer Science (7 books)
         {1,  "Computer Architecture",                        "Computer Science", 2},
@@ -305,19 +289,13 @@ void initializeBooks(vector<Book>& books, bool copyBorrowed[][MAX_COPIES_PER_BOO
     }
 }
 
-// Preloads 4 members so the system has data to demo without manual entry
 void initializeMembers(vector<Member>& members) {
     struct Seed {
         int id;
         string name;
         string category;
     };
-    vector<Seed> seedData = {
-        {1, "Lim Chun Chen", "Student"},
-        {2, "Chan Kuan Fu",  "Staff"},
-        {3, "Tee Zhong Kai", "Public"},
-        {4, "Lee Gin Shyang","Student"}
-    };
+    vector<Seed> seedData = {};
     for (const auto& s : seedData) {
         Member m{};
         m.memberID = s.id;
@@ -334,17 +312,16 @@ void initializeMembers(vector<Member>& members) {
 }
 
 // ---------- Module 1: Member Management ----------
-
 void addMember(vector<Member>& members) {
     cout << "\n===== Add Member =====\n";
-    int memberID = getValidInt("Enter Member ID: ", 1, 999999999);
+    int memberID = getValidInt("Enter Member ID : ", 1, 999999999);
     if (findMemberIndex(members, memberID) != -1) {
         cout << "Member ID already exists.\n";
         return;
     }
     Member member{};
     member.memberID = memberID;
-    member.name = getValidString("Enter name: ");
+    member.name = getValidString("Enter name    : ");
     member.category = getMemberCategory();
     member.fineBalance = 0.00;
     member.borrowedCount = 0;
@@ -353,13 +330,12 @@ void addMember(vector<Member>& members) {
         member.borrowedBooks[i].borrowDay = 0;
     }
     members.push_back(member);
-    cout << "Member added successfully.\n";
+    cout << "\nMember added successfully.\n";
     cout << "This member's borrowing limit is " << getMaxBorrowLimit(member.category)
         << " book(s), loan period " << getLoanPeriodDays(member.category) << " day(s).\n";
 }
 
-// Column widths for the member table (used by both "View Members" and "Search Member"
-// so the two commands look identical - just with a different number of rows).
+// Col width for the member table (used by both "View Members" and "Search Member"
 const int COL_MEM_ID = 6;
 const int COL_MEM_NAME = 20;
 const int COL_MEM_CATEGORY = 10;
@@ -385,7 +361,7 @@ void printMemberTableHeader() {
 }
 
 void printMemberTableRow(const Member& member, int currentDay) {
-    // Truncate an unusually long name so it can never break the table alignment.
+    // truncate an unusually long name so it can never break the table alignment
     string name = member.name;
     if (static_cast<int>(name.length()) > COL_MEM_NAME - 1) {
         name = name.substr(0, COL_MEM_NAME - 4) + "...";
@@ -414,25 +390,57 @@ void viewMembers(const vector<Member>& members, int currentDay) {
     for (const Member& member : members) printMemberTableRow(member, currentDay);
 }
 
+// search members by ID or name using a regex pattern
 void searchMember(const vector<Member>& members, int currentDay) {
     cout << "\n===== Search Member =====\n";
-    int memberID = getValidInt("Enter Member ID: ", 1, 999999999);
-    int index = findMemberIndex(members, memberID);
-    if (index == -1) { cout << "Member not found.\n"; return; }
-    cout << "\n";
+    if (members.empty()) { cout << "No members found.\n"; return; }
+
+    string keyword = getValidString("Enter Member Name or ID    : ");
+
+    regex pattern;
+    try {
+        // user input as a regex
+        pattern = regex(keyword, regex::icase);
+    }
+    catch (const regex_error&) {
+        cout << "Invalid search pattern. Please avoid unsupported regex syntax.\n";
+        return;
+    }
+
+    // traverse the member vector and collect every match into a new vector
+    vector<Member> searchResults;
+    for (const Member& member : members) {
+        string idText = to_string(member.memberID);
+        if (regex_search(idText, pattern) || regex_search(member.name, pattern)) {
+            searchResults.push_back(member);
+        }
+    }
+
+    if (searchResults.empty()) {
+        cout << "\nNo matching member(s) found.\n";
+        return;
+    }
+
+    cout << "\nFound " << searchResults.size() << " matching member(s):\n\n";
     printMemberTableHeader();
-    printMemberTableRow(members[index], currentDay);
+    for (const Member& member : searchResults) {
+        printMemberTableRow(member, currentDay);
+    }
+
+    // clear the results vector now that it has been displayed
+    searchResults.clear();
 }
 
 void updateMember(vector<Member>& members) {
     cout << "\n===== Update Member =====\n";
+    
     int memberID = getValidInt("Enter Member ID: ", 1, 999999999);
     int index = findMemberIndex(members, memberID);
+    
     if (index == -1) { cout << "Member not found.\n"; return; }
 
     string newCategory = getMemberCategory();
-    // Guard: don't let a member switch to a category whose borrow limit is
-    // lower than the number of books they currently hold.
+   
     if (members[index].borrowedCount > getMaxBorrowLimit(newCategory)) {
         cout << "Cannot change category.\nThis member currently holds " << members[index].borrowedCount
             << " book(s), which exceeds the " << newCategory << " limit of "
@@ -446,14 +454,16 @@ void updateMember(vector<Member>& members) {
 
 void deleteMember(vector<Member>& members, const vector<Reservation>& reservations) {
     cout << "\n===== Delete Member =====\n";
+    
     int memberID = getValidInt("Enter Member ID: ", 1, 999999999);
     int index = findMemberIndex(members, memberID);
+    
     if (index == -1) { cout << "Member not found.\n"; return; }
     if (members[index].borrowedCount != 0) {
         cout << "Cannot delete member.\nThe member still has borrowed books.\n";
         return;
     }
-    // Block deletion if the member is still waiting in a reservation queue
+    // block deletion if the member is still waiting in a reservation queue
     for (const Reservation& reservation : reservations) {
         if (reservation.memberID == memberID) {
             cout << "Cannot delete member.\nThis member has pending reservation(s).\n";
@@ -465,33 +475,43 @@ void deleteMember(vector<Member>& members, const vector<Reservation>& reservatio
 }
 
 // ---------- Module 1: Book Catalogue Management ----------
-
 void addBook(vector<Book>& books, bool copyBorrowed[][MAX_COPIES_PER_BOOK], int& nextBookSlot) {
     cout << "\n===== Add Book =====\n";
+    
     if (nextBookSlot >= MAX_BOOKS) {
         cout << "Cannot add book.\nThe system has reached its maximum of " << MAX_BOOKS << " distinct titles.\n";
         return;
     }
+    
     int bookID = getValidInt("Enter Book ID: ", 1, 999999999);
+    
     if (findBookIndex(books, bookID) != -1) { cout << "Book ID already exists.\n"; return; }
+    
     Book book{};
     book.bookID = bookID;
     book.title = getValidString("Enter title: ");
     book.author = getValidString("Enter author: ");
     book.category = getValidString("Enter category: ");
-    // Total copies is capped at MAX_COPIES_PER_BOOK since each copy needs its own
-    // tracked slot in the per-copy status matrix.
-    book.totalCopies = getValidInt("Enter total copies (max " + to_string(MAX_COPIES_PER_BOOK) + "): ", 1, MAX_COPIES_PER_BOOK);
+    
+    // the total copies is capped at MAX_COPIES_PER_BOOK since each copy needs its own
+    // tracked slot in the per-copy status matrix
+    book.totalCopies = getValidInt(
+        "Enter total copies (max " + to_string(MAX_COPIES_PER_BOOK) + "): ",
+        1, 
+        MAX_COPIES_PER_BOOK
+    );
     book.copiesAvailable = book.totalCopies;
     book.copySlot = nextBookSlot++;
-    resetCopyRow(copyBorrowed, book.copySlot, book.totalCopies, 0); // brand new book, nothing borrowed yet
+    
+    // brand new book, nothing borrowed yet
+    resetCopyRow(copyBorrowed, book.copySlot, book.totalCopies, 0); 
+    
     books.push_back(book);
+    
     cout << "Book added successfully.\n";
 }
 
-// Column widths for the book catalogue table. Title is set wide enough to fit
-// the longest seeded title ("Introduction to Data Structures and Algorithms")
-// without overflowing into the next column.
+// Col width for the book catalogue table
 const int COL_BOOK_ID = 5;
 const int COL_BOOK_TITLE = 50;
 const int COL_BOOK_AUTHOR = 12;
@@ -508,13 +528,11 @@ void printBookTableHeader() {
         << setw(COL_BOOK_TOTAL) << "Total" << "| "
         << setw(COL_BOOK_AVAILABLE) << "Available" << "\n";
     int lineWidth = COL_BOOK_ID + COL_BOOK_TITLE + COL_BOOK_AUTHOR + COL_BOOK_CATEGORY
-        + COL_BOOK_TOTAL + COL_BOOK_AVAILABLE + (5 * 2); // 5 "| " separators
+        + COL_BOOK_TOTAL + COL_BOOK_AVAILABLE + (5 * 2);
     cout << string(lineWidth, '-') << "\n";
 }
 
 void printBookTableRow(const Book& book) {
-    // If a title is ever longer than the column width, truncate with "..." so
-    // it can never push the remaining columns out of alignment.
     string title = book.title;
     if (static_cast<int>(title.length()) > COL_BOOK_TITLE - 1) {
         title = title.substr(0, COL_BOOK_TITLE - 4) + "...";
@@ -532,63 +550,81 @@ void viewBooks(const vector<Book>& books) {
     cout << "\n===== Book Catalogue =====\n";
     if (books.empty()) { cout << "No books found.\n"; return; }
 
-    // Group books by category so titles of the same subject sit together, and
-    // order the groups from the category with the most titles down to the
-    // category with the fewest, so the tidy/well-stocked subjects lead and the
-    // small, one-off categories trail at the end.
+    // group books by category 
     map<string, int> categoryCount;
     for (const Book& book : books) categoryCount[book.category]++;
 
     vector<Book> sortedBooks = books;
-    stable_sort(sortedBooks.begin(), sortedBooks.end(), [&categoryCount](const Book& a, const Book& b) {
-        int countA = categoryCount[a.category];
-        int countB = categoryCount[b.category];
-        if (countA != countB) return countA > countB;      // bigger categories first
-        if (a.category != b.category) return a.category < b.category; // keep same category adjacent
-        return a.bookID < b.bookID;                          // stable order within a category
-        });
+    stable_sort(
+        sortedBooks.begin(), sortedBooks.end(), 
+
+        [&categoryCount](const Book& a, const Book& b) {
+            int countA = categoryCount[a.category];
+            int countB = categoryCount[b.category];
+
+            // bigger categories first
+            if (countA != countB) return countA > countB;      
+        
+            // keep same category adjacent
+            if (a.category != b.category) return a.category < b.category; 
+            
+            // stable order within a category
+            return a.bookID < b.bookID;                          
+            }
+    );
 
     printBookTableHeader();
     string lastCategory = "";
     for (const Book& book : sortedBooks) {
-        // A blank line between category groups makes the grouping visually obvious.
+        // blank line between category groups makes the grouping visually obvious
         if (!lastCategory.empty() && book.category != lastCategory) cout << "\n";
+        
         lastCategory = book.category;
+        
         printBookTableRow(book);
     }
 }
 
 void searchBook(const vector<Book>& books) {
     cout << "\n===== Search Book =====\n";
+    
     int bookID = getValidInt("Enter Book ID: ", 1, 999999999);
     int index = findBookIndex(books, bookID);
+    
     if (index == -1) { cout << "Book not found.\n"; return; }
+    
     cout << "\n";
+    
     printBookTableHeader();
     printBookTableRow(books[index]);
 }
 
 void updateBook(vector<Book>& books, bool copyBorrowed[][MAX_COPIES_PER_BOOK]) {
     cout << "\n===== Update Book =====\n";
+    
     int bookID = getValidInt("Enter Book ID: ", 1, 999999999);
     int index = findBookIndex(books, bookID);
+    
     if (index == -1) { cout << "Book not found.\n"; return; }
+    
     Book& book = books[index];
     book.title = getValidString("Enter new title: ");
     book.author = getValidString("Enter new author: ");
     book.category = getValidString("Enter new category: ");
-    // New total can't go below copies currently on loan, and can't exceed the
-    // per-book slot capacity of the copy-tracking matrix.
+
+    // new total cannot go below copies currently on loan
+    // & cannot exceed the per-book slot capacity of the copy-tracking matrix
     int borrowedCopies = book.totalCopies - book.copiesAvailable;
+    
     int newTotalCopies = getValidInt(
         "Enter new total copies (" + to_string(borrowedCopies) + "-" + to_string(MAX_COPIES_PER_BOOK) + "): ",
         borrowedCopies, MAX_COPIES_PER_BOOK);
+    
     book.totalCopies = newTotalCopies;
     book.copiesAvailable = newTotalCopies - borrowedCopies;
-    // Re-lay the copy row: the first `borrowedCopies` slots stay/become "borrowed",
-    // the rest of the new total are "available". Which physical copy is which
-    // doesn't matter since copies of the same title are interchangeable.
+    
     resetCopyRow(copyBorrowed, book.copySlot, newTotalCopies, borrowedCopies);
+    
     cout << "Book updated successfully.\n";
 }
 
@@ -601,21 +637,18 @@ void deleteBook(vector<Book>& books, const vector<Reservation>& reservations) {
         cout << "Cannot delete book.\nSome copies are currently borrowed.\n";
         return;
     }
-    // Block deletion if someone is still waiting for this book
+    // block deletion if someone is still waiting for this book
     for (const Reservation& reservation : reservations) {
         if (reservation.bookID == bookID) {
             cout << "Cannot delete book.\nThis book has pending reservation(s).\n";
             return;
         }
     }
-    // Note: the book's row in copyBorrowed is simply abandoned (all-false, unused
-    // from now on). Its slot number is never reassigned to a future book, so a
-    // stale reference can never alias onto a different title later.
     books.erase(books.begin() + index);
     cout << "Book deleted successfully.\n";
 }
 
-// Column widths for the per-copy status table.
+// Col width for per-copy status table
 const int COL_COPY_NUMBER = 6;
 const int COL_COPY_STATUS = 10;
 
@@ -643,7 +676,6 @@ void viewBookCopyStatus(const vector<Book>& books, const bool copyBorrowed[][MAX
 }
 
 // ---------- Module 2: Reservation Management ----------
-
 void reserveBook(vector<Member>& members, vector<Book>& books, vector<Reservation>& reservations) {
     cout << "\n===== Reserve Book =====\n";
     int memberID = getValidInt("Enter Member ID: ", 1, 999999999);
@@ -666,11 +698,11 @@ void reserveBook(vector<Member>& members, vector<Book>& books, vector<Reservatio
     Reservation reservation;
     reservation.memberID = memberID;
     reservation.bookID = bookID;
-    reservations.push_back(reservation);   // added at the end = FIFO queue
+    reservations.push_back(reservation); 
     cout << "Reservation added successfully.\nYour reservation is placed at the end of the FIFO queue.\n";
 }
 
-// Column widths for the reservation queue table.
+// Col width for the reservation queue table
 const int COL_RES_POS = 6;
 const int COL_RES_MEM_ID = 6;
 const int COL_RES_MEM_NAME = 20;
@@ -732,7 +764,6 @@ void cancelReservation(vector<Member>& members, vector<Book>& books, vector<Rese
 }
 
 // ---------- Module 3: Borrowing & Returning ----------
-
 void borrowBook(vector<Member>& members, vector<Book>& books, vector<Reservation>& reservations, int& currentDay,
     bool copyBorrowed[][MAX_COPIES_PER_BOOK]) {
     cout << "\n===== Borrow Book =====\n";
@@ -750,20 +781,20 @@ void borrowBook(vector<Member>& members, vector<Book>& books, vector<Reservation
         cout << "\n";
         return;
     }
-    // Borrowing limit now depends on the member's category (Student/Staff/Public)
+    // borrowing limit depends on member's category (Student/Staff/Public)
     int maxBorrowLimit = getMaxBorrowLimit(member.category);
     if (member.borrowedCount >= maxBorrowLimit) {
         cout << "Cannot borrow more books.\nMaximum borrowing limit for " << member.category
             << " members is " << maxBorrowLimit << " book(s).\n";
         return;
     }
-    // Show the catalogue so the member/librarian can see what's available before picking an ID.
+    // show catalogue to see what is available before picking an ID.
     viewBooks(books);
     int bookID = getValidInt("\nEnter Book ID: ", 1, 999999999);
     int bookIndex = findBookIndex(books, bookID);
     if (bookIndex == -1) { cout << "Book not found.\n"; return; }
 
-    // Same member can't hold two copies of the same book
+    // same member cannot hold two copies of the same book
     for (int i = 0; i < member.borrowedCount; i++) {
         if (member.borrowedBooks[i].bookID == bookID) {
             cout << "You have already borrowed this book.\nThe same member cannot borrow the same book twice.\n";
@@ -777,8 +808,7 @@ void borrowBook(vector<Member>& members, vector<Book>& books, vector<Reservation
         return;
     }
 
-    // If this book has a reservation queue, only the first person in line
-    // (earliest matching entry, since the vector preserves insertion order) can borrow it
+    // if this book has a reservation queue, only the first person in line
     int reservationIndex = -1;
     for (int i = 0; i < static_cast<int>(reservations.size()); i++) {
         if (reservations[i].bookID == bookID) { reservationIndex = i; break; }
@@ -795,10 +825,10 @@ void borrowBook(vector<Member>& members, vector<Book>& books, vector<Reservation
     member.borrowedBooks[member.borrowedCount].borrowDay = currentDay;
     member.borrowedCount++;
     book.copiesAvailable--;
-    // Mark exactly one physical copy of this title as now on loan.
+    
     int copyNumber = markOneCopyBorrowed(copyBorrowed, book.copySlot, book.totalCopies);
-    // Loan period is also category-based
     int loanPeriodDays = getLoanPeriodDays(member.category);
+
     cout << "Book borrowed successfully.\n";
     if (copyNumber != -1) cout << "Physical Copy Assigned: Copy " << copyNumber << " of " << book.totalCopies << "\n";
     cout << "Borrow Day: " << currentDay << "\nDue Day: " << currentDay + loanPeriodDays
@@ -821,7 +851,7 @@ void returnBook(vector<Member>& members, vector<Book>& books, vector<Reservation
     if (borrowedIndex == -1) { cout << "This member did not borrow this book.\n"; return; }
 
     int borrowDay = member.borrowedBooks[borrowedIndex].borrowDay;
-    // Overdue calculation now uses this member's own loan period (based on category)
+    // overdue calculation now uses this member's own loan period (based on category)
     int loanPeriodDays = getLoanPeriodDays(member.category);
     int overdueDays = (currentDay - borrowDay) - loanPeriodDays;
     if (overdueDays > 0) {
@@ -834,7 +864,7 @@ void returnBook(vector<Member>& members, vector<Book>& books, vector<Reservation
         cout << "Book returned on time.\n";
     }
 
-    // Shift remaining entries left to fill the gap left by the returned book
+    // shift remaining entries left to fill the gap left by the returned book
     for (int i = borrowedIndex; i < member.borrowedCount - 1; i++) member.borrowedBooks[i] = member.borrowedBooks[i + 1];
     member.borrowedCount--;
     member.borrowedBooks[member.borrowedCount].bookID = 0;
@@ -843,12 +873,12 @@ void returnBook(vector<Member>& members, vector<Book>& books, vector<Reservation
     int bookIndex = findBookIndex(books, bookID);
     if (bookIndex != -1) {
         books[bookIndex].copiesAvailable++;
-        // Put exactly one physical copy of this title back on the shelf.
+        // only exactly one physical copy of this title can put back on the shelf
         int copyNumber = markOneCopyReturned(copyBorrowed, books[bookIndex].copySlot, books[bookIndex].totalCopies);
         cout << "Book returned successfully.\n";
         if (copyNumber != -1) cout << "Physical Copy Returned: Copy " << copyNumber << " of " << books[bookIndex].totalCopies << "\n";
 
-        // Notify the next member in the reservation queue, if any
+        // Notify the next member in reservation queue
         bool hasReservation = false;
         for (const Reservation& reservation : reservations) {
             if (reservation.bookID == bookID) {
@@ -867,7 +897,7 @@ void returnBook(vector<Member>& members, vector<Book>& books, vector<Reservation
     }
 }
 
-// Column widths for the "member's borrowed books" table.
+// Col width for the "member's borrowed books" table
 const int COL_LOAN_ID = 5;
 const int COL_LOAN_TITLE = 35;
 const int COL_LOAN_BORROW_DAY = 11;
@@ -895,7 +925,7 @@ void viewBorrowedBooks(const vector<Member>& members, const vector<Book>& books,
         << setw(COL_LOAN_STATUS) << "Status" << "| "
         << setw(COL_LOAN_OVERDUE) << "Overdue Days" << "\n";
     int lineWidth = COL_LOAN_ID + COL_LOAN_TITLE + COL_LOAN_BORROW_DAY + COL_LOAN_DUE_DAY
-        + COL_LOAN_STATUS + COL_LOAN_OVERDUE + (5 * 2); // 5 "| " separators
+        + COL_LOAN_STATUS + COL_LOAN_OVERDUE + (5 * 2);
     cout << string(lineWidth, '-') << "\n";
 
     double estimatedFine = 0.00;
@@ -935,7 +965,7 @@ void viewBorrowedBooks(const vector<Member>& members, const vector<Book>& books,
     }
 }
 
-// Lets the tester simulate the passage of time for overdue/fine testing
+// simulate the passage of time for overdue/fine testing
 void advanceDay(int& currentDay) {
     cout << "\n===== Advance Day =====\n";
     int days = getValidInt("Enter number of days to advance: ", 1, 999999999);
@@ -944,8 +974,7 @@ void advanceDay(int& currentDay) {
 }
 
 // ---------- Module 4: Fine Calculation & Reporting ----------
-
-// Column widths for the single-member fine breakdown table shown by "View / Pay Fine".
+// Col width for the table shown by "View / Pay Fine"
 const int COL_FINE_NAME = 20;
 const int COL_FINE_RECORDED = 14;
 const int COL_FINE_ESTIMATED = 14;
@@ -984,11 +1013,11 @@ void viewPayFine(vector<Member>& members, int currentDay) {
     double payment = getValidDouble("\nEnter payment amount: RM ", 0.01);
     if (payment > member.fineBalance) { cout << "Payment cannot exceed the recorded fine.\n"; return; }
     member.fineBalance -= payment;
-    if (member.fineBalance < 0.005) member.fineBalance = 0.00;   // clear tiny floating-point remainder
+    if (member.fineBalance < 0.005) member.fineBalance = 0.00;  
     cout << "Payment successful.\nRemaining Recorded Fine: RM " << fixed << setprecision(2) << member.fineBalance << "\n";
 }
 
-// Column widths for the overdue books report table.
+// Col width for the overdue books report table
 const int COL_OD_MEM_ID = 6;
 const int COL_OD_MEM_NAME = 18;
 const int COL_OD_CATEGORY = 9;
@@ -1051,7 +1080,7 @@ void overdueBooksReport(const vector<Member>& members, const vector<Book>& books
     if (!found) cout << "No overdue books found.\n";
 }
 
-// Column widths for the book popularity report table.
+// Col width for the book popularity report table
 const int COL_POP_RANK = 6;
 const int COL_POP_ID = 6;
 const int COL_POP_TITLE = 35;
@@ -1063,7 +1092,7 @@ void bookPopularityReport(const vector<Book>& books) {
     cout << "\n===== Book Popularity Report =====\n";
     if (books.empty()) { cout << "No books found.\n"; return; }
     vector<Book> sortedBooks = books;
-    // Rank by number of copies currently on loan (higher = more popular)
+    // Rank by number of copies currently on loan (more higher more popular)
     sort(sortedBooks.begin(), sortedBooks.end(), [](const Book& a, const Book& b) {
         int borrowedA = a.totalCopies - a.copiesAvailable;
         int borrowedB = b.totalCopies - b.copiesAvailable;
@@ -1099,7 +1128,7 @@ void bookPopularityReport(const vector<Book>& books) {
     }
 }
 
-// Column widths for the fine summary report table.
+// Col width for fine summary report table
 const int COL_FS_MEM_ID = 6;
 const int COL_FS_NAME = 20;
 const int COL_FS_RECORDED = 12;
@@ -1142,11 +1171,7 @@ void fineSummaryReport(const vector<Member>& members, int currentDay) {
     cout << "\n--------------------------------\nTotal Outstanding Fine (recorded + estimated): RM " << fixed << setprecision(2) << totalFine << "\n";
 }
 
-// ---------- File Export Functions (New Additions) ----------
-
-// Strips path separators and drive letters from a user-supplied filename so it
-// can never be used to write outside the export folder (e.g. "..\..\x" or
-// "C:\Windows\x" are reduced to a harmless plain filename).
+// ---------- File Export Functions ----------
 string sanitizeFilename(const string& rawName) {
     string name;
     for (char c : rawName) {
@@ -1160,13 +1185,11 @@ string sanitizeFilename(const string& rawName) {
     return name;
 }
 
-// Builds a safe, cross-platform path inside an export folder next to the
-// program (created automatically on first use, on any OS), instead of a
-// hardcoded Windows-only path that may not exist.
+// created automatically on first use , export with a folder and txt file as data record
 string buildExportPath(const string& userFileName) {
     fs::path exportDir = fs::current_path() / "Smart Library System Data Export";
     error_code ec;
-    fs::create_directories(exportDir, ec); // no-op if it already exists
+    fs::create_directories(exportDir, ec);
     return (exportDir / sanitizeFilename(userFileName)).string();
 }
 
@@ -1194,9 +1217,9 @@ void exportBooksToFile(const vector<Book>& books) {
         return;
     }
 
-    outFile << "========================================\n";
+    outFile << string(40, '=') << endl;
     outFile << "         LIBRARY BOOK CATALOGUE         \n";
-    outFile << "========================================\n";
+    outFile << string(40, '=') << endl;
     outFile << left
         << setw(COL_BOOK_ID) << "ID" << "| "
         << setw(COL_BOOK_TITLE) << "Title" << "| "
@@ -1234,9 +1257,9 @@ void exportMembersToFile(const vector<Member>& members, int currentDay) {
         return;
     }
 
-    outFile << "========================================\n";
+    outFile << string(40, '=') << endl;
     outFile << "          MEMBER & FINE RECORD          \n";
-    outFile << "========================================\n";
+    outFile << string(40, '=') << endl;
     outFile << "Current Simulated Day: " << currentDay << "\n\n";
 
     outFile << left
@@ -1279,10 +1302,10 @@ void exportOverdueReportToFile(const vector<Member>& members, const vector<Book>
         return;
     }
 
-    outFile << "========================================\n";
+    outFile << string(40, '=') << endl;
     outFile << "          OVERDUE BOOKS REPORT          \n";
-    outFile << "========================================\n";
-    outFile << "Current Simulated Day: " << currentDay << "\n\n";
+    outFile << string(40, '=') << endl;
+    outFile << " Current Simulated Day: " << currentDay << "\n\n";
 
     bool found = false;
     for (const Member& member : members) {
@@ -1313,54 +1336,68 @@ void exportOverdueReportToFile(const vector<Member>& members, const vector<Book>
 
 
 // ---------- Menus ----------
-
 void catalogueMenu(vector<Member>& members, vector<Book>& books, vector<Reservation>& reservations,
     bool copyBorrowed[][MAX_COPIES_PER_BOOK], int& nextBookSlot, int currentDay) {
     int choice;
     do {
         clearScreen();
-        cout << "\n========================================\n Member & Book Catalogue Management\n========================================\n";
-        cout << "1. Add Member\n2. View Members\n3. Search Member\n4. Update Member\n5. Delete Member\n"
-            << "6. Add Book\n7. View Books\n8. Search Book\n9. Update Book\n10. Delete Book\n"
-            << "11. View Book Copy Status\n0. Back to Main Menu\n";
-        choice = getValidInt("Enter choice: ", 0, 11);
+        cout << "\n" << string(40, '=') 
+             << "\n   Member & Book Catalogue Management   " 
+             << "\n" << string(40, '=') << endl;
+
+        cout << "  1.  Add Member    \n" 
+             << "  2.  View Members  \n" 
+             << "  3.  Search Member \n" 
+             << "  4.  Update Member \n" 
+             << "  5.  Delete Member \n"
+             << "  6.  Add Book      \n" 
+             << "  7.  View Books    \n" 
+             << "  8.  Search Book   \n" 
+             << "  9.  Update Book   \n" 
+             << " 10.  Delete Book   \n"
+             << " 11.  View Book Copy Status  \n" 
+             << endl 
+             << "  0. Back to Main Menu" << endl;
+        
+        choice = getValidInt("\nEnter choice: ", 0, 11);
+        
         switch (choice) {
-        case 1:
-            addMember(members);
-            break;
-        case 2:
-            viewMembers(members, currentDay);
-            break;
-        case 3:
-            searchMember(members, currentDay);
-            break;
-        case 4:
-            updateMember(members);
-            break;
-        case 5:
-            deleteMember(members, reservations);
-            break;
-        case 6:
-            addBook(books, copyBorrowed, nextBookSlot);
-            break;
-        case 7:
-            viewBooks(books);
-            break;
-        case 8:
-            searchBook(books);
-            break;
-        case 9:
-            updateBook(books, copyBorrowed);
-            break;
-        case 10:
-            deleteBook(books, reservations);
-            break;
-        case 11:
-            viewBookCopyStatus(books, copyBorrowed);
-            break;
-        case 0:
-            cout << "Returning to Main Menu...\n";
-            break;
+            case 1:
+                addMember(members);
+                break;
+            case 2:
+                viewMembers(members, currentDay);
+                break;
+            case 3:
+                searchMember(members, currentDay);
+                break;
+            case 4:
+                updateMember(members);
+                break;
+            case 5:
+                deleteMember(members, reservations);
+                break;
+            case 6:
+                addBook(books, copyBorrowed, nextBookSlot);
+                break;
+            case 7:
+                viewBooks(books);
+                break;
+            case 8:
+                searchBook(books);
+                break;
+            case 9:
+                updateBook(books, copyBorrowed);
+                break;
+            case 10:
+                deleteBook(books, reservations);
+                break;
+            case 11:
+                viewBookCopyStatus(books, copyBorrowed);
+                break;
+            case 0:
+                cout << "Returning to Main Menu...\n";
+                break;
         }
         if (choice != 0) pauseForUser();
     } while (choice != 0);
@@ -1370,22 +1407,31 @@ void reservationMenu(vector<Member>& members, vector<Book>& books, vector<Reserv
     int choice;
     do {
         clearScreen();
-        cout << "\n========================================\n Reservation Management\n========================================\n";
-        cout << "1. Reserve Book\n2. View Reservations\n3. Cancel Reservation\n0. Back to Main Menu\n";
-        choice = getValidInt("Enter choice: ", 0, 3);
+        cout << "\n" << string(40, '=')
+             << "\n         Reservation Management" 
+             << "\n" << string(40, '=') << endl;
+
+        cout << "  1.  Reserve Book\n" 
+             << "  2.  View Reservations\n" 
+             << "  3.  Cancel Reservation\n" 
+             << endl 
+             << "  0.  Back to Main Menu" << endl;
+        
+        choice = getValidInt("\nEnter choice: ", 0, 3);
+        
         switch (choice) {
-        case 1:
-            reserveBook(members, books, reservations);
-            break;
-        case 2:
-            viewReservations(members, books, reservations);
-            break;
-        case 3:
-            cancelReservation(members, books, reservations);
-            break;
-        case 0:
-            cout << "Returning to Main Menu...\n";
-            break;
+            case 1:
+                reserveBook(members, books, reservations);
+                break;
+            case 2:
+                viewReservations(members, books, reservations);
+                break;
+            case 3:
+                cancelReservation(members, books, reservations);
+                break;
+            case 0:
+                cout << "Returning to Main Menu...\n";
+                break;
         }
         if (choice != 0) pauseForUser();
     } while (choice != 0);
@@ -1396,27 +1442,38 @@ void borrowingMenu(vector<Member>& members, vector<Book>& books, vector<Reservat
     int choice;
     do {
         clearScreen();
-        cout << "\n========================================\n Borrowing & Returning\n========================================\n";
-        cout << "Current Simulated Day: " << currentDay << "\n\n";
-        cout << "1. Borrow Book\n2. Return Book\n3. View Member's Borrowed Books\n4. Advance Day\n0. Back to Main Menu\n";
-        choice = getValidInt("Enter choice: ", 0, 4);
+        cout << "\n" << string(40,'=') 
+             << "\n         Borrowing & Returning          " 
+             << "\n" << string(40,'=');
+
+        cout << "\n  Current Simulated Day: " << currentDay << "\n\n";
+        
+        cout << "  1.  Borrow Book\n" 
+             << "  2.  Return Book\n" 
+             << "  3.  View Member's Borrowed Books\n" 
+             << "  4.  Advance Day\n" 
+             << endl
+             << "  0.  Back to Main Menu\n";
+        
+        choice = getValidInt("\nEnter choice: ", 0, 4);
+        
         switch (choice) {
-        case 1:
-            borrowBook(members, books, reservations, currentDay, copyBorrowed);
-            break;
-        case 2:
-            returnBook(members, books, reservations, currentDay, copyBorrowed);
-            break;
-        case 3:
-            viewBorrowedBooks(members, books, currentDay);
-            break;
-        case 4:
-            advanceDay(currentDay);
-            break;
-        case 0:
-            cout << "Returning to Main Menu...\n";
-            break;
-        }
+            case 1:
+                borrowBook(members, books, reservations, currentDay, copyBorrowed);
+                break;
+            case 2:
+                returnBook(members, books, reservations, currentDay, copyBorrowed);
+                break;
+            case 3:
+                viewBorrowedBooks(members, books, currentDay);
+                break;
+            case 4:
+                advanceDay(currentDay);
+                break;
+            case 0:
+                cout << "Returning to Main Menu...\n";
+                break;
+            }
         if (choice != 0) pauseForUser();
     } while (choice != 0);
 }
@@ -1425,26 +1482,33 @@ void reportingMenu(vector<Member>& members, const vector<Book>& books, int curre
     int choice;
     do {
         clearScreen();
-        cout << "\n========================================\n Fine Calculation & Reporting\n========================================\n";
-        cout << "1. View / Pay Fine\n"
-            << "2. Overdue Books Report\n"
-            << "3. Book Popularity Report\n"
-            << "4. Fine Summary Report\n"
-            << "5. Export Book Catalogue to File (TXT)\n"    // Added export option
-            << "6. Export Member Records to File (TXT)\n"   // Added export option
-            << "7. Export Overdue Report to File (TXT)\n"   // Added export option
-            << "0. Back to Main Menu\n";
-        choice = getValidInt("Enter choice: ", 0, 7);
+        cout << "\n" << string(40, '=')
+             << "\n      Fine Calculation & Reporting      " 
+             << "\n" << string(40, '=') << endl;
+
+        cout << "  1.  View / Pay Fine\n"
+             << "  2.  Overdue Books Report\n"
+             << "  3.  Book Popularity Report\n"
+             << "  4.  Fine Summary Report\n"
+             << "  5.  Export Book Catalogue to File (TXT)\n"  
+             << "  6.  Export Member Records to File (TXT)\n"   
+             << "  7.  Export Overdue Report to File (TXT)\n" 
+             << endl 
+             << "  0.  Back to Main Menu\n";
+        
+        choice = getValidInt("\nEnter choice: ", 0, 7);
+        
         switch (choice) {
-        case 1: viewPayFine(members, currentDay); break;
-        case 2: overdueBooksReport(members, books, currentDay); break;
-        case 3: bookPopularityReport(books); break;
-        case 4: fineSummaryReport(members, currentDay); break;
-        case 5: exportBooksToFile(books); break;                    // Call export function
-        case 6: exportMembersToFile(members, currentDay); break;    // Call export function
-        case 7: exportOverdueReportToFile(members, books, currentDay); break; // Call export function
-        case 0: cout << "Returning to Main Menu...\n"; break;
+            case 1: viewPayFine(members, currentDay); break;
+            case 2: overdueBooksReport(members, books, currentDay); break;
+            case 3: bookPopularityReport(books); break;
+            case 4: fineSummaryReport(members, currentDay); break;
+            case 5: exportBooksToFile(books); break;                   
+            case 6: exportMembersToFile(members, currentDay); break;  
+            case 7: exportOverdueReportToFile(members, books, currentDay); break;
+            case 0: cout << "Returning to Main Menu...\n"; break;
         }
+        
         if (choice != 0) pauseForUser();
     } while (choice != 0);
 }
@@ -1454,26 +1518,38 @@ void mainMenu(vector<Member>& members, vector<Book>& books, vector<Reservation>&
     int choice;
     do {
         clearScreen();
-        cout << "\n\n========================================\n       LIBRARY MANAGEMENT SYSTEM\n========================================\n";
-        cout << "Current Simulated Day: " << currentDay << "\n\n";
-        cout << "1. Member & Book Catalogue Management\n2. Reservation Management\n3. Borrowing & Returning\n4. Fine Calculation & Reporting\n0. Exit\n";
-        choice = getValidInt("Enter choice: ", 0, 4);
+        cout << endl
+             << string(40, '=') << endl
+             << "       LIBRARY MANAGEMENT SYSTEM\n"
+             << string(40, '=') << endl;
+
+        cout << " Current Simulated Day: " << currentDay << "\n\n";
+        
+        cout << "  1.  Member & Book Catalogue Management\n" 
+             << "  2.  Reservation Management\n" 
+             << "  3.  Borrowing & Returning\n" 
+             << "  4.  Fine Calculation & Reporting\n" 
+             << endl
+             << "  0.  Exit\n";
+
+        choice = getValidInt("\nEnter choice: ", 0, 4);
+        
         switch (choice) {
-        case 1:
-            catalogueMenu(members, books, reservations, copyBorrowed, nextBookSlot, currentDay);
-            break;
-        case 2:
-            reservationMenu(members, books, reservations);
-            break;
-        case 3:
-            borrowingMenu(members, books, reservations, currentDay, copyBorrowed);
-            break;
-        case 4:
-            reportingMenu(members, books, currentDay);
-            break;
-        case 0:
-            cout << "\nExiting...\n";
-            break;
+            case 1:
+                catalogueMenu(members, books, reservations, copyBorrowed, nextBookSlot, currentDay);
+                break;
+            case 2:
+                reservationMenu(members, books, reservations);
+                break;
+            case 3:
+                borrowingMenu(members, books, reservations, currentDay, copyBorrowed);
+                break;
+            case 4:
+                reportingMenu(members, books, currentDay);
+                break;
+            case 0:
+                cout << "\nExiting...\n";
+                break;
         }
     } while (choice != 0);
 }
